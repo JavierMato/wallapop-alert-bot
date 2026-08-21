@@ -2,13 +2,30 @@ import axios from 'axios';
 import { BotConfig, WallapopItem, SearchResult } from '../types/bot';
 import { storageService } from './storageService';
 
-const WALLAPOP_SEARCH_URL = 'https://api.wallapop.com/api/v3/general/search';
+const CITY_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
+  madrid: { latitude: 40.416775, longitude: -3.703790 },
+  barcelona: { latitude: 41.385064, longitude: 2.173403 },
+  valencia: { latitude: 39.469907, longitude: -0.376288 },
+  sevilla: { latitude: 37.389092, longitude: -5.984459 },
+  zaragoza: { latitude: 41.648823, longitude: -0.889085 },
+  malaga: { latitude: 36.721261, longitude: -4.421266 },
+  málaga: { latitude: 36.721261, longitude: -4.421266 },
+  murcia: { latitude: 37.992240, longitude: -1.130654 },
+  palma: { latitude: 39.569601, longitude: 2.650160 },
+  bilbao: { latitude: 43.263013, longitude: -2.934985 },
+  alicante: { latitude: 38.345996, longitude: -0.490685 },
+  cordoba: { latitude: 37.888175, longitude: -4.779383 },
+  códoba: { latitude: 37.888175, longitude: -4.779383 },
+  valladolid: { latitude: 41.652251, longitude: -4.724532 },
+  vigo: { latitude: 42.240599, longitude: -8.720727 },
+  gijon: { latitude: 43.535730, longitude: -5.661519 },
+  gijón: { latitude: 43.535730, longitude: -5.661519 },
+  granada: { latitude: 37.177336, longitude: -3.598557 },
+  coruña: { latitude: 43.362344, longitude: -8.411540 },
+  "a coruña": { latitude: 43.362344, longitude: -8.411540 },
+};
 
-// CORS proxies for Web execution if needed
-const CORS_PROXIES = [
-  'https://corsproxy.io/?',
-  'https://api.allorigins.win/raw?url=',
-];
+const WALLAPOP_SEARCH_URL = 'https://api.wallapop.com/api/v3/search/section';
 
 export const wallapopService = {
   /**
@@ -33,12 +50,28 @@ export const wallapopService = {
       params['max_sale_price'] = bot.maxPrice.toString();
     }
 
-    if (bot.latitude !== undefined && bot.longitude !== undefined) {
-      params['latitude'] = bot.latitude.toString();
-      params['longitude'] = bot.longitude.toString();
-    } else {
-      params['latitude'] = '40.416775';
-      params['longitude'] = '-3.703790';
+    // Determine latitude & longitude
+    let lat: number | undefined = bot.latitude;
+    let lng: number | undefined = bot.longitude;
+
+    if (lat === undefined || lng === undefined) {
+      if (bot.city && bot.city.trim()) {
+        const cleanCity = bot.city.toLowerCase().trim();
+        const found = CITY_COORDINATES[cleanCity];
+        if (found) {
+          lat = found.latitude;
+          lng = found.longitude;
+        }
+      }
+    }
+
+    // Default to Madrid if unspecified or city not in map
+    params['latitude'] = (lat !== undefined ? lat : 40.416775).toString();
+    params['longitude'] = (lng !== undefined ? lng : -3.703790).toString();
+
+    // Distance in km or meters if specified
+    if (bot.distance !== undefined && bot.distance > 0) {
+      params['distance'] = (bot.distance * 1000).toString(); // Convert km to meters
     }
 
     return params;
@@ -73,10 +106,8 @@ export const wallapopService = {
     let rawObjects: any[] = [];
     let fetchError: string | undefined;
 
-    const endpointUrl = 'https://api.wallapop.com/api/v3/search/section';
-
     try {
-      const response = await axios.get(endpointUrl, {
+      const response = await axios.get(WALLAPOP_SEARCH_URL, {
         params: { ...queryParams, search_id: searchId },
         headers: headers,
         timeout: 10000,
@@ -157,43 +188,5 @@ export const wallapopService = {
       error: fetchError,
       timestamp: timestamp,
     };
-  },
-
-  /**
-   * Helper to generate realistic simulated items matching search keywords
-   * when API returns no results or rate-limit blocks live scraping.
-   */
-  generateFallbackItemsForBot(bot: BotConfig): any[] {
-    const basePrice = bot.minPrice ? bot.minPrice + 10 : 50;
-    const maxPrice = bot.maxPrice ? bot.maxPrice - 5 : basePrice + 300;
-    const keywords = bot.keywords || 'bicicleta';
-    const cleanKw = keywords.toLowerCase().replace(/\s+/g, '-');
-    const randomId1 = Math.floor(1040000000 + Math.random() * 9000000);
-    const randomId2 = Math.floor(1040000000 + Math.random() * 9000000);
-
-    return [
-      {
-        id: `${randomId1}`,
-        title: `${keywords.charAt(0).toUpperCase() + keywords.slice(1)} en perfecto estado`,
-        price: Math.floor(basePrice + Math.random() * (maxPrice - basePrice)),
-        currency: 'EUR',
-        web_slug: `${cleanKw}-excelente-estado-${randomId1}`,
-        share_url: `https://es.wallapop.com/item/${cleanKw}-excelente-estado-${randomId1}`,
-        images: [
-          { original: 'https://images.unsplash.com/photo-1485965120184-e220f721d03e?q=80&w=400&auto=format&fit=crop' }
-        ],
-      },
-      {
-        id: `${randomId2}`,
-        title: `Chollo ${keywords} - Como nuevo con garantía`,
-        price: Math.floor(basePrice + Math.random() * (maxPrice - basePrice)),
-        currency: 'EUR',
-        web_slug: `chollo-${cleanKw}-garantia-${randomId2}`,
-        share_url: `https://es.wallapop.com/item/chollo-${cleanKw}-garantia-${randomId2}`,
-        images: [
-          { original: 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?q=80&w=400&auto=format&fit=crop' }
-        ],
-      }
-    ];
   },
 };

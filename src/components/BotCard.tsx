@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Switch, TouchableOpacity, Alert } from 'react-n
 import { BotConfig } from '../types/bot';
 import { ThemeColors } from '../theme/colors';
 import { Play, Edit3, Trash2, Tag, MapPin, DollarSign, Clock, Zap } from 'lucide-react-native';
+import { formatIntervalLabel } from '../utils/formatters';
 
 interface BotCardProps {
   bot: BotConfig;
@@ -94,7 +95,7 @@ export const BotCard: React.FC<BotCardProps> = ({
         <View style={[styles.filterBadge, { backgroundColor: theme.surface }]}>
           <Clock size={12} color={theme.textSecondary} />
           <Text style={[styles.filterText, { color: theme.textSecondary }]}>
-            {bot.checkIntervalMinutes} min
+            {formatIntervalLabel(bot.checkIntervalMinutes)}
           </Text>
         </View>
       </View>
