@@ -15,16 +15,17 @@ export const wallapopService = {
    * Builds the query parameters for Wallapop search
    */
   buildQueryParams(bot: BotConfig): Record<string, string> {
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = {
+      source: 'search_box',
+      search_country: 'ES',
+      section_type: 'organic_search_results',
+      order_by: 'most_relevance',
+    };
 
-    // 1. Keywords joined by '+'
     if (bot.keywords && bot.keywords.trim()) {
-      // Replace spaces with +
-      const formattedItems = bot.keywords.trim().split(/\s+/).join('+');
-      params['items'] = formattedItems;
+      params['keywords'] = bot.keywords.trim();
     }
 
-    // 2. Min & Max Price
     if (bot.minPrice !== undefined && bot.minPrice !== null && !isNaN(bot.minPrice)) {
       params['min_sale_price'] = bot.minPrice.toString();
     }
@@ -32,56 +33,61 @@ export const wallapopService = {
       params['max_sale_price'] = bot.maxPrice.toString();
     }
 
-    // 3. City & Distance
-    if (bot.city && bot.city.trim()) {
-      params['city'] = bot.city.trim();
-    }
-    if (bot.distance !== undefined && bot.distance !== null && bot.distance > 0) {
-      // Wallapop distance param (in km or meters)
-      params['distance'] = bot.distance.toString();
-    }
-
-    // 4. Coordinates if available
     if (bot.latitude !== undefined && bot.longitude !== undefined) {
       params['latitude'] = bot.latitude.toString();
       params['longitude'] = bot.longitude.toString();
+    } else {
+      params['latitude'] = '40.416775';
+      params['longitude'] = '-3.703790';
     }
 
     return params;
   },
 
   /**
-   * Executes a Wallapop API search for a single bot
+   * Executes a Wallapop API search for a single bot using the working /search/section endpoint
    */
   async executeBotSearch(bot: BotConfig): Promise<SearchResult> {
     const timestamp = new Date().toISOString();
     const queryParams = this.buildQueryParams(bot);
 
+    // Generate tracking IDs for search/section API
+    const deviceId = `${Math.random().toString(36).substring(2)}-${Date.now()}`;
+    const searchId = `${Math.random().toString(36).substring(2)}-${Date.now()}`;
+    const trackingId = Math.floor(Math.random() * 9e18).toString();
+
     const headers = {
-      'User-Agent': 'Wallapop/12.4.0 (iPhone; iOS 16.6; Scale/3.00)',
-      'X-DeviceOS': '1',
-      'Accept': 'application/json',
-      'Accept-Language': 'es-ES',
+      'accept': 'application/json, text/plain, */*',
+      'accept-language': 'es,es-ES;q=0.9',
+      'deviceos': '0',
+      'x-deviceos': '0',
+      'mpid': trackingId,
+      'trackinguserid': trackingId,
+      'x-appversion': '826230',
+      'x-deviceid': deviceId,
+      'origin': 'https://es.wallapop.com',
+      'referer': 'https://es.wallapop.com/',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     };
 
     let rawObjects: any[] = [];
     let fetchError: string | undefined;
 
+    const endpointUrl = 'https://api.wallapop.com/api/v3/search/section';
+
     try {
-      // Attempt 1: Direct Request
-      const response = await axios.get(WALLAPOP_SEARCH_URL, {
-        params: queryParams,
+      const response = await axios.get(endpointUrl, {
+        params: { ...queryParams, search_id: searchId },
         headers: headers,
         timeout: 10000,
       });
 
       if (response.data) {
-        rawObjects = response.data.search_objects || response.data.items || response.data.search_result?.items || [];
+        rawObjects = response.data?.data?.section?.items || response.data?.search_objects || [];
       }
     } catch (err: any) {
       console.warn(`Direct Wallapop API call error for bot "${bot.name}":`, err?.message || err);
 
-      // Analyze specific HTTP errors
       if (err?.response?.status === 429) {
         fetchError = 'Límite de peticiones alcanzado en Wallapop (HTTP 429). Reintentando en breve.';
       } else if (err?.response?.status === 403) {
@@ -89,39 +95,12 @@ export const wallapopService = {
       } else {
         fetchError = err?.message || 'Error de conexión con Wallapop';
       }
-
-      // Web Browser Fallback: Try CORS proxies if on web
-      if (typeof window !== 'undefined' && window.document) {
-        for (const proxy of CORS_PROXIES) {
-          try {
-            const fullUrl = `${WALLAPOP_SEARCH_URL}?${new URLSearchParams(queryParams).toString()}`;
-            const proxyUrl = `${proxy}${encodeURIComponent(fullUrl)}`;
-            const proxyRes = await axios.get(proxyUrl, { timeout: 8000 });
-            if (proxyRes.data) {
-              const data = typeof proxyRes.data === 'string' ? JSON.parse(proxyRes.data) : proxyRes.data;
-              rawObjects = data.search_objects || data.items || [];
-              if (rawObjects.length > 0) {
-                fetchError = undefined;
-                break;
-              }
-            }
-          } catch (pErr) {
-            // Ignore proxy errors and proceed
-          }
-        }
-      }
     }
-
-    // Parse items into WallapopItem model (only real objects, no fake fallbacks)
 
     // Parse items into WallapopItem model
     const parsedItems: WallapopItem[] = rawObjects.map((obj: any, index: number) => {
-      const rawId = obj.id ? obj.id.toString() : '';
-      const isRealNumericId = /^\d+$/.test(rawId);
-      const itemId = isRealNumericId ? rawId : `w_${Date.now()}_${index}`;
+      const itemId = obj.id ? obj.id.toString() : `w_${Date.now()}_${index}`;
       const webSlug = obj.web_slug || obj.slug || '';
-
-      // Determine direct specific product URL: https://es.wallapop.com/item/[slug]
       let itemUrl = obj.share_url || obj.url || obj.web_url;
 
       if (!itemUrl) {
@@ -134,13 +113,12 @@ export const wallapopService = {
             .replace(/[\u0300-\u036f]/g, "")
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-+|-+$/g, '');
-          const itemNumId = isRealNumericId ? itemId : `${1040000000 + Math.floor(Math.random() * 9000000)}`;
-          itemUrl = `https://es.wallapop.com/item/${cleanTitle}-${itemNumId}`;
+          itemUrl = `https://es.wallapop.com/item/${cleanTitle}-${itemId}`;
         }
       }
 
       // Extract image URL
-      let imageUrl = obj.images?.[0]?.original || obj.images?.[0]?.medium || obj.main_image?.original || obj.image?.original;
+      let imageUrl = obj.images?.[0]?.urls?.medium || obj.images?.[0]?.original || obj.images?.[0]?.small || obj.main_image?.original;
       if (!imageUrl && typeof obj.images?.[0] === 'string') {
         imageUrl = obj.images[0];
       }
