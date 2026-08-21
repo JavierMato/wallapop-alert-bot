@@ -58,11 +58,10 @@ export const wallapopService = {
     const queryParams = this.buildQueryParams(bot);
 
     const headers = {
-      'Host': 'api.wallapop.com',
-      'X-DeviceOS': '0',
-      'User-Agent': 'Wget/1.21.4',
-      'Accept': '*/*',
-      'Accept-Encoding': 'identity',
+      'User-Agent': 'Wallapop/12.4.0 (iPhone; iOS 16.6; Scale/3.00)',
+      'X-DeviceOS': '1',
+      'Accept': 'application/json',
+      'Accept-Language': 'es-ES',
     };
 
     let rawObjects: any[] = [];
@@ -113,10 +112,7 @@ export const wallapopService = {
       }
     }
 
-    // If API is unreachable or returned empty, we generate fallback items matching the bot's criteria for seamless demonstration
-    if (rawObjects.length === 0 && (!fetchError || fetchError.includes('Network Error') || fetchError.includes('403'))) {
-      rawObjects = this.generateFallbackItemsForBot(bot);
-    }
+    // Parse items into WallapopItem model (only real objects, no fake fallbacks)
 
     // Parse items into WallapopItem model
     const parsedItems: WallapopItem[] = rawObjects.map((obj: any, index: number) => {

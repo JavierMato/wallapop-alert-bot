@@ -13,7 +13,14 @@ interface ItemCardProps {
 export const ItemCard: React.FC<ItemCardProps> = ({ item, theme, onDelete }) => {
   const handleOpenUrl = async () => {
     try {
-      const urlToOpen = item.url || `https://es.wallapop.com/item/${item.webSlug || item.id}`;
+      let urlToOpen = item.url;
+      if (!urlToOpen) {
+        if (item.webSlug) {
+          urlToOpen = `https://es.wallapop.com/item/${item.webSlug}`;
+        } else {
+          urlToOpen = `https://es.wallapop.com/app/search?keywords=${encodeURIComponent(item.title || item.botName || 'chollo')}`;
+        }
+      }
       await Linking.openURL(urlToOpen);
     } catch (err) {
       Alert.alert('Error', 'No se pudo abrir el enlace de Wallapop.');
